@@ -1,0 +1,194 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+from matplotlib.widgets import Button
+
+# Parâmetros do sistema
+n = 10
+m = 0.1
+k = 1.0
+g = 9.8
+dt = 0.01
+total_time = 5
+
+# Condições iniciais
+positions = np.zeros(n)
+velocities = np.zeros(n)
+
+scale_factor = 1
+for i in range(1, n):
+    positions[i] = positions[i - 1] - scale_factor * (m * g / k)
+
+positions -= positions[-1]
+initial_positions = positions.copy()
+
+time_points = [0]
+positions_over_time = [positions.copy()]
+num_steps = int(total_time / dt)
+
+for step in range(num_steps):
+    accelerations = np.zeros(n)
+
+    for i in range(n):
+        if i == 0:
+            spring_force = -k * (positions[i] - positions[i + 1])
+            accelerations[i] = (spring_force - m * g) / m
+        elif i == n - 1:
+            spring_force = -k * (2 * positions[i] - positions[i - 1])
+        else:
+            spring_force = -k * (2 * positions[i] - positions[i - 1] - positions[i + 1])
+
+        if i != 0:
+            if positions[i - 1] <= initial_positions[i]:
+                accelerations[i] = (spring_force - m * g) / m
+            else:
+                accelerations[i] = 0
+
+    velocities += accelerations * dt
+    positions += velocities * dt
+
+    time_points.append((step + 1) * dt)
+    positions_over_time.append(positions.copy())
+
+positions_over_time = np.array(positions_over_time)
+time_points = np.array(time_points)
+
+# ------------------------------
+# Animação com molas em zigue-zague proporcionais às bolinhas
+# ------------------------------
+fig, ax = plt.subplots(figsize=(6, 8))
+plt.subplots_adjust(bottom=0.3)
+
+zoom_factor = 10
+ax.set_xlim(-0.1 / zoom_factor, 0.1 / zoom_factor)
+
+y_min = np.min(positions_over_time) - 1.0
+y_max = np.max(positions_over_time[0]) + 1.0
+
+ax.set_ylim(y_max, -1 * y_max)
+ax.invert_yaxis()
+
+# Definir tamanho da bolinha e sua largura visual no eixo
+bolinha_markersize = 10
+bolinha_diametro = 0.02  # Aproximadamente — ajuste visual para combinar
+raio_bolinha = bolinha_diametro / 80
+
+
+spring_lines, = ax.plot([], [], color='gray', linewidth=1.5, label='Molas', zorder=1)
+first_point, = ax.plot([], [], 'o', color='red', markersize=bolinha_markersize, label='Primeira Massa', zorder=3)
+middle_points, = ax.plot([], [], 'o', color='black', markersize=bolinha_markersize, label='Massas Intermediárias', zorder=3)
+last_point, = ax.plot([], [], 'o', color='green', markersize=bolinha_markersize, label='Última Massa', zorder=3)
+
+
+# Base de referência
+fixed_base_y = positions_over_time[0, -1]
+base_line = ax.axhline(y=fixed_base_y, color='red', linestyle='--', label='Posição Inicial da Base')
+
+# Linha das molas em zigue-zague
+spring_lines, = ax.plot([], [], color='gray', linewidth=1.5, label='Molas')
+
+is_running = {'value': False}
+current_frame = {'index': 0}
+
+# Função para gerar zigue-zague entre dois pontos
+def zigzag_between_points(x0, y0, x1, y1, num_zigs=6, amplitude=raio_bolinha):
+    """Gera pontos em zigue-zague entre dois pontos,
+    conectando base de uma bolinha à topo da próxima."""
+
+    # Corrige para partir da parte de baixo da bolinha superior
+    # e ir até a parte de cima da bolinha inferior
+    y0_corrigido = y0 + raio_bolinha
+    y1_corrigido = y1 - raio_bolinha
+
+    ys = np.linspace(y0_corrigido, y1_corrigido, num_zigs * 2 + 1)
+    xs = np.zeros_like(ys)
+
+    for i in range(1, len(xs) - 1):
+        xs[i] = amplitude if i % 2 == 0 else -amplitude
+
+    return xs, ys
+
+def spring_curve(x0, y0, x1, y1, num_coils=5, amplitude=raio_bolinha):
+    y0_corrigido = y0 + raio_bolinha
+    y1_corrigido = y1 - raio_bolinha
+
+    length = y1_corrigido - y0_corrigido
+    ys = np.linspace(y0_corrigido, y1_corrigido, num_coils * 300)
+    xs = amplitude * np.sin(2 * np.pi * num_coils * (ys - y0_corrigido) / length)
+    return xs, ys
+
+
+# Função de inicialização
+def init():
+
+    y = positions_over_time[0]
+    x = np.zeros(n)
+
+    # Gerar mola em zigue-zague conectando todos os pontos
+    spring_x = []
+    spring_y = []
+
+    for i in range(n - 1):
+        xs, ys = spring_curve(x[i], y[i], x[i + 1], y[i + 1])
+        spring_x.extend(xs)
+        spring_y.extend(ys)
+
+    first_point.set_data(0, y[0])
+    middle_points.set_data(np.zeros(n - 2), y[1:-1])
+    last_point.set_data(0, y[-1])
+
+    spring_lines.set_data(spring_x, spring_y)
+
+
+    return first_point, middle_points, last_point, spring_lines
+
+# Função de atualização
+def update(frame):
+    if is_running['value'] and current_frame['index'] < len(time_points):
+        y = positions_over_time[current_frame['index']]
+        x = np.zeros(n)
+
+        first_point.set_data(0, y[0])
+        middle_points.set_data(np.zeros(n - 2), y[1:-1])
+        last_point.set_data(0, y[-1])
+
+        # Gerar mola em zigue-zague conectando todos os pontos
+        spring_x = []
+        spring_y = []
+
+        for i in range(n - 1):
+            xs, ys = spring_curve(x[i], y[i], x[i + 1], y[i + 1])
+            spring_x.extend(xs)
+            spring_y.extend(ys)
+
+        spring_lines.set_data(spring_x, spring_y)
+
+        current_frame['index'] += 1
+
+    return first_point, middle_points, last_point, spring_lines
+
+# Botões
+ax_play = plt.axes([0.2, 0.05, 0.2, 0.075])
+btn_play = Button(ax_play, 'Play')
+
+ax_reset = plt.axes([0.6, 0.05, 0.2, 0.075])
+btn_reset = Button(ax_reset, 'Reset')
+
+def start_animation(event):
+    is_running['value'] = True
+
+def reset_animation(event):
+    is_running['value'] = False
+    current_frame['index'] = 0
+    init()
+    plt.draw()
+
+btn_play.on_clicked(start_animation)
+btn_reset.on_clicked(reset_animation)
+
+ani = animation.FuncAnimation(fig, update, frames=len(time_points), init_func=init,
+                              blit=True, interval=20)
+
+plt.title('Simulação Visual da Queda do Slinky - Caso Continuo Poroso', x=-0.4)
+plt.legend()
+plt.show()
